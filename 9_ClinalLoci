@@ -1,0 +1,315 @@
+#### Clinal loci ####
+################################################################################
+
+##make the file
+
+
+#load in packages
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(reshape)
+library(tidyr)
+library(lme4)
+
+#set up the working directory
+setwd("~/Term Postdoc_Aug17_2021start/Projects/Authorships/0.Analyses/3. Coding programs/3. R Files")
+
+#clear R's brain
+rm(list=ls())
+
+
+#get allele frequencies from plink per population (use --freq and --family)
+# plink --file inputfilename --freq --family --allow-extra-chr
+
+#format the table
+allele <- read.table("plink.frq.strat", header = TRUE)
+
+#keep only the population and maf columns
+allele_keep <- subset (allele, select = -c (CHR, A1, A2, MAC, NCHROBS))
+
+# reshaping the data
+allele_reshape <- spread(allele_keep,
+                           key=SNP,
+                           value=MAF)
+
+#need to add in the latitude for each population
+meta <- read.csv("EU_LatsLongs.csv")
+
+#add the lats to the allele freqs
+dat <- cbind(allele_reshape, meta$Lat)
+
+# Change colname of one column
+colnames(dat)[colnames(dat) == "meta$Lat"] <- "Latitude"
+
+#read out the data
+write.table(allele_reshape, "North_snps.txt", sep="\t")
+#need to make sure the latitude column is right after the pop data
+
+
+
+################################################################################
+##################################################################################
+
+##figure out the correct threshold
+
+
+
+
+
+#load in packages
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(reshape)
+library(tidyr)
+library(lme4)
+library(stats)
+
+
+#set up the working directory
+setwd("~/Term Postdoc_Aug17_2021start/Lumpfish/3. Data and analyses/3. Coding programs/3. R Files")
+
+#clear R's brain
+rm(list=ls())
+
+
+#read the file
+dat <- read.csv("North_snps.txt",header=T,sep="\t")
+
+
+SubDat1 <- dat %>% filter(Latitude == min(Latitude))
+SubDat2 <- dat %>% filter(Latitude == max(Latitude))
+SubDat <- rbind(SubDat1, SubDat2)
+
+#remove the population and latitude columns
+SubDat_nopopnames=SubDat[,-c(1,2,grep("Count",colnames(dat)))]
+
+#get the difference between min and max latitudes
+SubDat_difference <- diff(as.matrix(SubDat_nopopnames))
+
+#make all the values positive
+SubDat_difference_positive = as.numeric(gsub("[-]", "", SubDat_difference))
+
+
+#get a plot showing the best threshold value to use
+plot(ecdf(SubDat_difference_positive))
+
+##0.25 for EU 
+##0.20 for NA 
+
+################################################################################
+
+
+##get clinal loci in EU
+
+
+theme_set(theme_bw())
+#filter flippy
+flipFun <- function(x){
+  
+  x=data.frame(value=x,Latitude=seq(49,65,1))
+  if(x[x$Latitude==65,"value"]<0.5){
+    x$value=1-x$value
+  }
+  
+  if(x[x$Latitude==65,"value"]<x[x$Latitude==49,"value"]){
+    x$value=1-x$value
+  }
+  
+  return(x[order(x$Latitude),"value"])
+}
+
+
+#read the file back in
+dat <- read.csv("EU_snps.txt",header=T,sep="\t")
+head(dat)
+
+#get a test of the data
+testdata=data.frame(x=dat$Latitude,y=1-dat$"AX.177564746")
+
+mod=glm(y~x,data=testdata,family=binomial(link="logit"))
+
+moddata=data.frame(x=seq(49,65,1))
+
+modplot=data.frame(x=seq(49,65,1),y=exp(predict(mod,moddata))/(1+exp(predict(mod,moddata))))
+
+plot(y~x,modplot)
+
+
+glmfun <- function(x){
+  Latitudes=c(49.471095, 50.612536, 51.831334, 52.130347, 57.281489,59.020353, 
+              62.145368, 63.080879, 64.460340, 63.936262, 65.755320, 65.817490)
+  moddata=data.frame(x=Latitudes,y=x)
+  predictdata=data.frame(x=seq(49,65,1))
+  mod=glm(y~x,data=moddata,family=binomial(link="logit"))
+  #modplot=data.frame(x=seq(0,72,10),y=exp(predict(mod,predictdata))/(1+exp(predict(mod,predictdata))))
+  return(exp(predict(mod,predictdata))/(1+exp(predict(mod,predictdata))))
+}
+
+testdata=dat[,-c(1,2,grep("Count",colnames(dat)))]
+
+
+glmout <- as.data.frame(apply(testdata,2,FUN=glmfun))
+
+glmout$Latitude <- seq(49,65,1)
+
+
+plotdata=reshape2::melt(glmout,id.vars="Latitude")
+plotdata$Clinal="No"
+
+##i found the correct threshold using ecdf
+for(i in colnames(testdata)){plotdata[plotdata$variable==i,"value"]=flipFun(plotdata[plotdata$variable==i,"value"])
+if(plotdata[plotdata$variable==i&plotdata$Latitude==65,"value"]- plotdata[plotdata$variable==i&plotdata$Latitude==49,"value"]>0.25){plotdata[plotdata$variable==i,"Clinal"]="Yes"}
+}
+
+
+yy<-filter(plotdata,Clinal=="Yes") #dplyr way
+europelatitudinaloutliers<-as.vector(unique(yy$variable))
+
+ggplot(plotdata,aes(x=Latitude,y=value,group=variable,col=Clinal))+geom_line(size=0.5)+
+  theme_bw()+
+  scale_color_manual(values=c("black", "red"))+
+  theme(legend.position="none")+scale_y_continuous(limits=c(0,1))+
+  labs(x=expression("Latitude"~degree~"N"),y="Allele frequency")+facet_grid(~Clinal)
+
+#Overall analysis
+
+Odata <- filter(plotdata,Clinal=="Yes")
+eurolatclinal<-as.vector(unique(Odata$variable))
+write.table(eurolatclinal,"Final_Europe_ClinalLoci_0.25_noBaltic.txt",quote=F, row.names = F)
+
+ModGlobal <- glm(value~Latitude,data=Odata,family=binomial(link="logit"))
+#ModGlobal2 <- glmer(value~Latitude+1|variable,data=Odata,family=binomial(link="logit"))
+OverallFit <- predict(ModGlobal,newdata=data.frame(Latitude=seq(49,65,1)),se.fit = TRUE)
+GobalPlotData <- data.frame(Latitude=seq(49,65,1),value=exp(OverallFit$fit)/(1+exp(OverallFit$fit)),
+                            se=OverallFit$se.fit)
+
+p=0.5 # inflection point at 50% prob
+fit_inflect <- (log(p/(1-p)) - coef(ModGlobal)[1]) / coef(ModGlobal)[2] #58.8 degrees
+
+ggplot()+
+  geom_line(aes(x=Latitude,y=value,group=variable),filter(plotdata,Clinal=="Yes"),lwd=0.2,col="grey10")+
+  #geom_line(aes(x=Latitude,y=value,group=variable),filter(plotdata,Clinal=="Yes"),lwd=0.4)+
+  geom_line(aes(x=Latitude,y=value),GobalPlotData,lwd=2)+
+  geom_line(aes(x=Latitude,y=value+se),GobalPlotData,lty=2,lwd=1.5)+
+  geom_line(aes(x=Latitude,y=value-se),GobalPlotData,lty=2,lwd=1.5)+theme_bw()+
+  scale_y_continuous(limits=c(0,1))+geom_vline(xintercept=fit_inflect)
+
+
+theme(legend.position="none")+scale_y_continuous(limits=c(0,1))+
+  labs(x="Latitude (km)",y="Allele frequency")+facet_grid(~Clinal)
+
+
+
+
+
+#######################################################################################
+##################North America Outliers##############################################
+#############################################################################
+
+
+
+################################################################################
+
+#clear R's brain
+rm(list=ls())
+
+
+theme_set(theme_bw())
+#filter flippy
+flipFun <- function(x){
+  
+  x=data.frame(value=x,Latitude=seq(47,52,0.5))
+  if(x[x$Latitude==52,"value"]<0.5){
+    x$value=1-x$value
+  }
+  
+  if(x[x$Latitude==52,"value"]<x[x$Latitude==47,"value"]){
+    x$value=1-x$value
+  }
+  
+  return(x[order(x$Latitude),"value"])
+}
+
+
+#read the file back in
+dat <- read.csv("North_snps.txt",header=T,sep="\t")
+head(dat)
+
+#get a test of the data
+testdata=data.frame(x=dat$Latitude,y=1-dat$"AX.297832748")
+
+mod=glm(y~x,data=testdata,family=binomial(link="logit"))
+
+moddata=data.frame(x=seq(47,52,0.5))
+
+modplot=data.frame(x=seq(47,52,0.5),y=exp(predict(mod,moddata))/(1+exp(predict(mod,moddata))))
+
+plot(y~x,modplot)
+
+
+glmfun <- function(x){
+  Latitudes=c(42.833333, 44.4248718, 44.4848718, 44.5126169, 44.6254, 44.9058311,
+              47.17736667, 47.28126667, 48.36933333, 49.3385, 49.78744, 51.59933)
+  moddata=data.frame(x=Latitudes,y=x)
+  predictdata=data.frame(x=seq(43,52,0.5))
+  mod=glm(y~x,data=moddata,family=binomial(link="logit"))
+  #modplot=data.frame(x=seq(0,72,10),y=exp(predict(mod,predictdata))/(1+exp(predict(mod,predictdata))))
+  return(exp(predict(mod,predictdata))/(1+exp(predict(mod,predictdata))))
+}
+
+testdata=dat[,-c(1,2,grep("Count",colnames(dat)))]
+
+
+glmout <- as.data.frame(apply(testdata,2,FUN=glmfun))
+
+glmout$Latitude <- seq(43,52,0.5)
+
+
+plotdata=melt(glmout,id.vars="Latitude")
+plotdata$Clinal="No"
+
+
+for(i in colnames(testdata)){plotdata[plotdata$variable==i,"value"]=flipFun(plotdata[plotdata$variable==i,"value"])
+if(plotdata[plotdata$variable==i&plotdata$Latitude==52,"value"]- plotdata[plotdata$variable==i&plotdata$Latitude==43,"value"]>0.2){plotdata[plotdata$variable==i,"Clinal"]="Yes"}
+}
+
+
+yy<-filter(plotdata,Clinal=="Yes") #dplyr way
+europelatitudinaloutliers<-as.vector(unique(yy$variable))
+
+ggplot(plotdata,aes(x=Latitude,y=value,group=variable,col=Clinal))+geom_line(size=0.5)+
+  theme_bw()+
+  scale_color_manual(values=c("black", "red"))+
+  theme(legend.position="none")+scale_y_continuous(limits=c(0,1))+
+  labs(x=expression("Latitude"~degree~"N"),y="Allele frequency")+facet_grid(~Clinal)
+
+#Overall analysis
+
+Odata <- filter(plotdata,Clinal=="Yes")
+eurolatclinal<-as.vector(unique(Odata$variable))
+write.table(eurolatclinal,"Final_NA_ClinalLoci_0.20_noTNR.txt",quote=F, row.names = F)
+
+ModGlobal <- glm(value~Latitude,data=Odata,family=binomial(link="logit"))
+#ModGlobal2 <- glmer(value~Latitude+1|variable,data=Odata,family=binomial(link="logit"))
+OverallFit <- predict(ModGlobal,newdata=data.frame(Latitude=seq(42,52,1)),se.fit = TRUE)
+GobalPlotData <- data.frame(Latitude=seq(42,52,1),value=exp(OverallFit$fit)/(1+exp(OverallFit$fit)),
+                            se=OverallFit$se.fit)
+
+p=0.5 # inflection point at 50% prob
+fit_inflect <- (log(p/(1-p)) - coef(ModGlobal)[1]) / coef(ModGlobal)[2] #58.8 degrees
+
+ggplot()+
+  geom_line(aes(x=Latitude,y=value,group=variable),filter(plotdata,Clinal=="Yes"),lwd=0.2,col="red")+
+  #geom_line(aes(x=Latitude,y=value,group=variable),filter(plotdata,Clinal=="Yes"),lwd=0.4)+
+  geom_line(aes(x=Latitude,y=value),GobalPlotData,lwd=2)+
+  geom_line(aes(x=Latitude,y=value+se),GobalPlotData,lty=2,lwd=1.5)+
+  geom_line(aes(x=Latitude,y=value-se),GobalPlotData,lty=2,lwd=1.5)+theme_bw()+
+  scale_y_continuous(limits=c(0,1))+geom_vline(xintercept=fit_inflect)
+
+
+theme(legend.position="none")+scale_y_continuous(limits=c(0,1))+
+  labs(x="Latitude (km)",y="Allele frequency")+facet_grid(~Clinal)
+
+
