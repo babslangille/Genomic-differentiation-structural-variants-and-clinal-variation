@@ -1,0 +1,106 @@
+################################################################################
+####################             PCA             #######################
+
+
+# Principal component analysis (PCA) for K=10 and min.maf of 0.01
+
+
+#load the packages
+library(pcadapt)
+library(gplots)
+library(ggplot2)
+
+#get into the working directory
+setwd("location")
+
+#clear R's brain
+rm(list=ls())
+
+
+#get the data and metadata
+Lump<- read.pcadapt("Lump_filter_MAF_norelate.ped", 
+                    type = "ped")
+FAM <- read.delim("Lump_filter_MAF_norelate.fam", 
+                  stringsAsFactors = F, header = F, sep = "")
+Metadata <- read.csv("Lumpfish_metadata.csv", 
+                     header = T, stringsAsFactors = F)
+
+#get the PCS for however many components
+PCs <- pcadapt(Lump, K = 10, min.maf = 0.01)
+
+##calculate EV-proportion of explained variance so that I can add it to the PCA
+EV <- (PCs$singular.values^2)
+EV2 <-EV*100
+EV2
+
+#see how many clusters of K is correct with a screeplot
+plot(PCs,  option = "screeplot") + theme_classic()
+
+#make the plot and add in what your explained variance is for each axis
+plot(PCs, option="scores", pop =  FAM$V1, i = 1, j =2) +
+  xlab("PC1 (X.X%)") +
+  ylab("PC2 (X.X%)") + 
+  theme_classic() ###Change to Metadata$Pop to get colored points by population
+
+
+
+################################################################################
+###############  K-means clustering based on PCA scores   ######################
+
+
+
+
+#load the following packages
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(ggforce)
+
+#set up the working directory
+setwd("location")
+
+#clear R's brain
+rm(list=ls())
+
+##load csv from PCAs generated above and change it to tsv
+Lumpy <- read.csv("Lumpfish_PCsScores.csv")#add in a column with sample names and one with location
+write_tsv(Lumpy, "Lumpfish_PCsScores.tsv") 
+
+#read in the tsv data
+pcs_plot=read_tsv("Lumpfish_PCsScores.tsv")
+
+#look at the PCS and pick the plot with the best separation
+plot(pcs_plot[,1:6]) 
+
+#work off of only PC1 and PC2
+keep = c("PC1", "PC2")
+pc_only = pcs_plot[keep]
+
+#count the within group sum of squares for different values of k using from 1-20
+within_sum_squares = c()
+for (i in 1:20){
+  within_sum_squares[i] = sum(kmeans(pc_only,
+                                     centers=i, nstart=25, 
+                                     iter.max=1000)$withinss)
+}
+
+#get a plot showing the best K values
+plot(1:20, within_sum_squares, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares", 
+     main = "k-means clustering - Determining optimal k for reduced data")
+
+#choose the K based on the skree plot (inflection point)
+optimal_k = kmeans(pc_only, 3, nstart=25, iter.max=1000)
+
+# assign the clusters back to the dataframe
+pcs_plot$cluster_k3 = as.factor(optimal_k$cluster)
+
+# plot the PCs with the cluster info
+pcs_clusters = ggplot() + geom_point(data = pcs_plot, 
+                                     aes(x = PC1, y = PC2, colour=cluster_k3))+
+  geom_mark_ellipse(data=pcs_plot, aes(x = PC1, y = PC2, fill = cluster_k3,
+                                       label = cluster_k3), expand = unit(0.5,"mm"))+
+  labs(title =  "Lumpfish samples, k-means clustering of PCs, 3 groups", 
+       subtitle = "PCA based on full set of SNPs")+
+  xlab("PC1 (X.X%)") +
+  ylab("PC2 (X.X%)") ##can get these numbers from the PCA section above
