@@ -1,0 +1,78 @@
+#####   Randomization for identification of clinal snps by chance alone   #####
+#Barbara Langille 
+#March 2023
+
+
+
+##this code checks what would be expected to get by chance alone
+#ie. are the shared clinal loci between parallel sites, possible to get by chance alone
+
+
+
+library(RcppCNPy)
+library(tidyverse)
+library(data.table)
+library(qvalue)
+library(wesanderson)
+
+
+
+
+#set up the working directory
+setwd("~/Term Postdoc_Aug17_2021start/Projects/Authorships/0.Analyses/3. Coding programs/3. R Files")
+
+#clear R's brain
+rm(list=ls())
+
+
+### read in map files of entire dataset - Europe and North America separately
+Group1 <- read.delim("Lump_recluster_downsampled_EUnoBaltic.map", 
+                 stringsAsFactors = F, header = F, sep = "")
+Group2 <-read.delim("Lump_recluster_downsampled_NAnoTNR.map", 
+                 stringsAsFactors = F, header = F, sep = "")
+
+
+
+#get the loci that are clinal in each of the groups
+Group1_cline <- read.delim("Lump_recluster_downsampled_EUnoBaltic_clinal.map", 
+                     stringsAsFactors = F, header = F, sep = "")
+Group2_cline <-read.delim("Lump_recluster_downsampled_NAnoTNR_clinal.map", 
+                    stringsAsFactors = F, header = F, sep = "")
+
+
+
+##get the gene list of those that overlap clinally between Europe and North America
+Overlap_genes <- read.delim("Lump_recluster_downsampled_EUnoBaltic_clinalshared.map", 
+                            stringsAsFactors = F, header = F, sep = "")
+
+
+
+
+
+#This function resamples a number of snps from each group randomly and looks for duplication
+#ie. shared loci based on chance alone
+#then plots the distribution of expected overlap, and places the 99% boundary in red 
+# and the observed proportion in blue
+parfunc <- function(Group1, Group2){
+  
+  set.seed(121) ## for reproducibility
+  nsim <- 100000
+  res <- numeric(nsim) ## set aside space for results
+  for (i in 1:nsim) {
+    ## use the same amount of clinal loci I have for each
+    x <- sample(Group1$V2, "2804") #change this to be the same number as clinal loci files
+    y <- sample(Group2$V2, "9379") #change this to be the same number as clinal loci files
+    ## compute & store difference in means; store the value
+    res[i] <- length(y[y %in% x])/length(unique(c(x,y)))}
+  
+  quantile(res) * 100
+  res <- data.frame(res)
+  ggplot() + geom_density(data = res, aes(x = res)) +
+    geom_vline(xintercept = quantile(res$res, 0.999), colour = "red") +
+    geom_vline(xintercept = length(Group1_cline$V2[Group1_cline$V2 %in% Group2_cline$V2])/length(unique(c(Group1_cline$V2, Group2_cline$V2)))
+               , colour = "blue") + theme_classic() +
+    xlim(0, 0.20)
+}
+
+parfunc(Group1, Group2)
+
