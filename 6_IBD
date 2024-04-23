@@ -1,0 +1,161 @@
+################################################################################
+##########################          IBD               #########################
+
+# Pairwise Fst
+
+
+
+# Used Arlequin to get result
+# Used R to make the figure
+
+#Load these packages
+library(ggplot2)
+
+#get into the working directory
+setwd("location")
+
+#clear R's brain
+rm(list=ls())
+
+#load in data from arlequin or import the data from above
+fst.df <- read.delim("Lumpfish_Fst.txt", sep = " ", row.names=1)
+
+## you will need to change it from a triangle table to long format!!
+ind <- which(lower.tri(fst.df, diag = TRUE), arr.ind = TRUE) ##might need to change between upper.tri and lower.tri depending on what dataset you are using
+nn <- dimnames(fst.df)
+new_FST <- data.frame(row = nn[[1]][ind[, 1]],
+                      col = nn[[2]][ind[, 2]],
+                      val = fst.df[ind])
+
+# write the long format data out
+write.csv(new_FST, file="Lumpfish_FSTlong.csv")
+
+# only want 3 lines, row, col, and val
+FST <- read.csv("Lumpfish_FSTlong.csv", header=T)
+
+# Fst italic label for the graph
+fst.label = expression(italic("F")[ST])
+
+# Extract middle Fst value for gradient argument
+mid = max(FST$val) / 2 #either the average pvalue from the data
+
+# Plot the Fst map
+ggplot(data = FST, aes(x = row, y = col, fill = val))+
+  geom_tile(colour = "black")+
+  geom_text(aes(label = val), color="black", size = 3)+
+  scale_fill_gradient2(low = "yellow", mid = "pink", high = "red", 
+                       midpoint = mid, name = fst.label, 
+                       limits = c(0, max(FST$val)), 
+                       breaks = c(0.05, 0.25, 0.50, 0.75))+
+  scale_x_discrete(expand = c(0,0), position = "bottom")+
+  scale_y_discrete(expand = c(0,0), position = "right")+
+  theme(axis.text = element_text(colour = "black", size = 10, face = "bold"),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "right",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 10)
+  )
+
+
+
+################################################################################
+
+
+
+# Isolation by distance
+
+
+
+#Load these packages
+library(marmap)
+library(Matrix)
+library(gdistance)
+library(tidyverse)
+library(gplots)
+library(ggplot2)
+library(RColorBrewer)
+library(viridis)
+
+setwd("location")
+
+#clear R's brain
+rm(list=ls())
+
+# Read in a dataframe with site, lat, and lon columns
+coords = read.csv("Lumpfish_populationmetadata.csv")
+
+# Download bathymetric data
+# The higher the resolution the higher accuracy but the slower the run time
+# res = 1 is the highest resolution
+bathy_data = getNOAA.bathy(lon1 = -70, lon2 = -50, lat1 = 40, lat2 = 55, res = 1, keep = TRUE)
+summary(bathy_data)
+
+# Get depth of coordinates
+# Must be less than ten metres (<-10) to compute distances (may need to adjust coordinates)
+get.depth(bathy_data, x = coords$Longitude, y = coords$Latitude, locator = FALSE)
+
+# Create transition object [long run time]
+# Author of marmap recommendations:
+# Use a minimum depth of -10 to avoid path crossing land masses
+# Use a maximum depth of -200 to limit paths to continental shelf
+trans1 = trans.mat(bathy_data, min.depth = -10, max.depth = NULL)
+
+# Compute least-cost distances (km) matrix
+lc_dist = lc.dist(trans1, subset(coords, select = c("Longitude","Latitude")), res = "dist")
+
+# Convert to matrix, rename columns and rows, and export as csv file
+lc_mat = as.matrix(lc_dist)
+colnames(lc_mat) = as.vector(coords$Site)
+rownames(lc_mat) = as.vector(coords$Site)
+lc_mat
+write.csv(lc_mat, file="lc_distances_km.csv")
+
+# Transform matrix into long format
+ind <- which(lower.tri(lc_mat, diag = TRUE), arr.ind = TRUE)
+nn <- dimnames(lc_mat)
+new_dist <- data.frame(row = nn[[1]][ind[, 1]],
+                       col = nn[[2]][ind[, 2]],
+                       val = lc_mat[ind])
+
+# Write the long format for the dist file 
+write.csv(new_dist,"Lumpfish_distlong.csv")
+
+# Combine both FST and dist columns into single csv file and import
+FST_GEO <- read.csv("Lumpfish_IBD.csv", header=TRUE)
+
+# Basic plot of the Fst values against the distance of populations
+p <- ggplot(FST_GEO, aes(x=FST_GEO$dist, y=FST_GEO$Fst)) + 
+  geom_point(size=2, pch=19, color="grey") + 
+  stat_smooth(method=lm, se=FALSE, fullrange=TRUE, color="darkred") + 
+  theme_classic() + 
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=0.5))
+
+# Add in the title and view it
+p +labs(title="",
+        x ="Geographical Distance (km)", y ="FST")
+
+# Add in a proper regression line
+fit1 <- lm(FST_GEO$Fst ~ FST_GEO$dist)
+summary(fit1) #view the output and get R2 and adjusted R2
+
+
+# Plot regressing FST and geographic distance
+ggplotRegression <- function (fit1) {
+  
+  require(ggplot2)
+  
+  ggplot(fit1$model, aes(x = fit1$model$`FST_GEO$dist`, 
+                         y = fit1$model$`FST_GEO$Fst`)) + 
+    geom_point() +
+    stat_smooth(method = "lm", col = "red", se=FALSE) +
+    scale_x_continuous(limits=c(0,2000), expand = c(0, 0)) + ##need to change distance based on what you have
+    scale_y_continuous(limits=c(0,0.05), expand = c(0, 0)) + ##need to change fst based on what you have
+    theme_classic() +
+    labs(title = paste("Adj R2 = ",signif(summary(fit1)$adj.r.squared, 5)), 
+         x ="Geographical Distance (km)", y ="FST")
+}
+
+# Get the plot
+ggplotRegression(lm(FST_GEO$Fst ~ FST_GEO$dist))
