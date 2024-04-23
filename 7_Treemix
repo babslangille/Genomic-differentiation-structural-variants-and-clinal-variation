@@ -1,0 +1,70 @@
+################################################################################
+##############################      Treemix     ################################
+
+
+###Determining the correct migration edges from treemix run
+##Put all files: .llik, .cov.gz and .modelcov.gz files produced by Treemix in a folder in the working directory
+
+
+
+install.packages("SiZer", force= TRUE)
+install.packages("OptM")
+
+#get the packages
+library(ggplot2)
+library(SiZer)
+library(OptM)
+
+#set up the working directory
+setwd("~/Term Postdoc_Aug17_2021start/Projects/Authorships/0.Analyses/3. Coding programs/3. R Files")
+
+#clear R's brain
+rm(list=ls())
+
+#run optM
+Evanno.optM = optM("OptM/", orientagraph = FALSE, method = "Evanno")
+Linear.optM = optM("OptM/", orientagraph = FALSE, method = "linear")
+
+#plot it
+plot_optM(Evanno.optM, method = "Evanno", pdf = "BestM_Evanno.pdf")
+plot_optM(Linear.optM, method = "linear", pdf = "BestM_Linear.pdf")
+
+
+
+
+################################################################################
+#get the tree
+
+
+#clear R's brain
+rm(list=ls())
+
+
+setwd("~/Term Postdoc_Aug17_2021start/Projects/Authorships/0.Analyses/3. Coding programs/3. R Files")
+prefix="TREEMIX/Lumpfish_EUandNAdownsampled"
+
+
+
+library(RColorBrewer)
+library(R.utils)
+source("plotting_funcs.R") # here you need to add the path
+
+#make the tree
+par(mfrow=c(2,3))
+for(edge in 0:4){
+  plot_tree(cex=0.8,paste0(prefix,"_",edge))
+  title(paste(edge,"edges"))
+}
+
+#make the tree
+par(mfrow=c(2,3))
+for(edge in 4){
+  plot_tree(cex=0.8,paste0(prefix,"_",edge))
+  title(paste(edge,"edges"))
+}
+
+
+#check and see which parts of the tree are not well modelled
+for(edge in 0){
+  plot_resid(stem=paste0(prefix,"_",edge),pop_order="lumpy.list")
+}
