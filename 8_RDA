@@ -1,0 +1,718 @@
+###############################################
+######RDA with and without MEM correction######
+######Barbara Langille
+###############################################
+
+
+
+
+####################
+# Get the enviro variables
+####################
+
+
+## R packages needed to get the data
+library(sdmpredictors)
+library(leaflet)
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(MASS)
+library(vegan)
+library(psych)
+library(raster)
+library(gplots)
+library(ggplot2)
+
+
+#set up the working directory
+setwd("~/Term Postdoc_Aug17_2021start/Projects/Authorships/0.Analyses/3. Coding programs/3. R Files")
+
+#clear R's brain
+rm(list=ls())
+
+#Get all the possible variables
+datasets <- list_datasets(terrestrial = FALSE, marine = TRUE)
+
+# exploring the layers
+layers <- list_layers(datasets)
+
+#Determine which variables are coorelated
+correlations <- layers_correlation(layers)
+View(correlations)
+
+
+# create groups of layers where no layers in one group 
+# have a correlation > 0.7 with a layer from another group
+groups <- correlation_groups(correlations, max_correlation=0.7)
+View(groups)
+
+# change groups into character string
+group <- names(unlist(groups))
+
+write.table(group, "CorrelatedGroups.csv")
+# inspect groups
+# heatmap plot for larger groups (if gplots library is installed)
+for(group in groups) {
+  group_correlation <- as.matrix(correlations[group, group, drop=FALSE])
+  if(require(gplots) && length(group) > 50){
+    heatmap.2(abs(group_correlation)
+              ,main = "Correlation"
+              ,col = "rainbow"      
+              ,notecol="black"      # change font color of cell labels to black
+              ,density.info="none"  # turns off density plot inside color legend
+              ,trace="none"         # turns off trace lines inside the heat map
+              ,margins = c(12,9)    # widens margins around plot
+    )
+  } else {
+    print(group_correlation)
+  }
+}
+
+# heatmap plot for larger groups (if gplots library is installed)
+for(group in groups) {
+  group_correlation <- as.matrix(correlations[group, group, drop=FALSE])
+  if(require(gplots) && length(group) > 50){
+    heatmap.2(abs(group_correlation)
+              ,main = "Correlation"
+              ,col = "rainbow"      
+              ,notecol="black"      # change font color of cell labels to black
+              ,density.info="none"  # turns off density plot inside color legend
+              ,trace="none"         # turns off trace lines inside the heat map
+              ,margins = c(12,9)    # widens margins around plot
+    )
+  } else {
+    print(group_correlation)
+  }
+}
+
+#remove negatives
+corr <- abs(correlations)
+
+#change sig digits
+corr1 <- format(round(corr, 4), nsmall = 4)
+
+group_correlation <- as.matrix(correlations[drop=FALSE])
+
+
+heatmap.2(abs(group_correlation)
+          ,main = "Correlation"
+          ,col = "rainbow"      
+          ,notecol="black"      # change font color of cell labels to black
+          ,density.info="none"  # turns off density plot inside color legend
+          ,trace="none"         # turns off trace lines inside the heat map
+          ,margins = c(12,9))
+
+
+#get the actual variables
+enviro <- read.csv("Lumpfish_correlation_NAandEU_July2022.csv", header = TRUE, row.names = 1)
+
+
+## data vis of correlation matrix
+pairs.panels(enviro[,1:21],
+             scale = T)
+
+#get table of correlations
+mycors <- cor(enviro)
+
+heatmap.2(abs(mycors)
+          ,main = "Correlation"
+          ,col = "rainbow"      
+          ,notecol="black"      # change font color of cell labels to black
+          ,density.info="none"  # turns off density plot inside color legend
+          ,trace="none"         # turns off trace lines inside the heat map
+          ,margins = c(12,9))
+
+
+###look at the variables and choose one from each group
+#Download all
+environment <- load_layers(layercodes = c("BO_calcite",
+                                          "BO_chlomax",
+                                          "BO2_tempmean_ss",
+                                          "BO_ph",
+                                          "BO_salinity",
+                                          "BO_sstrange",
+                                          "BO2_temprange_ss",
+                                          "BO_bathymin",
+                                          "BO_bathymean",
+                                          "BO2_curvelmax_bdmax",
+                                          "BO2_dissoxmax_bdmax",
+                                          "BO2_dissoxrange_bdmax",
+                                          "BO2_tempmax_bdmean",
+                                          "BO2_lightbotmean_bdmin",
+                                          "BO2_silicaterange_bdmax",
+                                          "BO2_icecoverltmax_ss",
+                                          "BO2_chlomax_ss",
+                                          "BO2_curvelmax_ss",
+                                          "BO2_curvelmean_ss",
+                                          "BO2_curvelmin_ss",
+                                          "BO2_phosphaterange_ss"),
+                           equalarea = FALSE,
+                           rasterstack = TRUE)
+
+
+
+## Need the sampling site names, lat, and long
+Sites = read_csv('Downsized_EUandNA_individualMetadata.csv') %>%
+  dplyr::select(FamID,
+                SampleID,
+                Latitude,
+                Longitude) %>%
+  as.data.frame()
+
+# Extract environmental values from layers
+## Extracts the environmental variables for each specific sites
+## unfortunately some sites appear to be missing from the databases
+Env_data = data.frame(Name = Sites$SampleID,
+                      env_data = raster::extract(environment,Sites[,3:4])) %>%
+  as_tibble()
+
+#write out the data
+#look at the data - might need to jitter the points so they are all in the water
+write.csv(Env_data, "Lumpfish_EnviroData_EUandNA_Feb2023.csv")
+
+
+
+################################################################################
+
+
+####################
+# Construct the spatial matrix
+####################
+
+
+#install.packages(c("ade4", "adespatial"))
+library(ade4)
+library(adespatial)
+library(spdep)
+library(adegraphics)
+library(sdmpredictors)
+library(tidyverse)
+# install.packages(c("psych","vegan"), dependencies=TRUE)
+library(psych)    # Used to investigate correlations among predictors
+library(vegan)    # Used to run RDA
+
+
+#get into the working directory
+setwd("~/Term Postdoc_Aug17_2021start/Projects/Authorships/0.Analyses/3. Coding programs/3. R Files")
+
+#clear R's brain
+rm(list=ls())
+
+#get a datafile with one individual per site and with enviro variables
+env_data = read.csv('Lumpfish_EnviroData_EUandNA_Feb2023_nodups.csv')
+
+#pull out the enviro variables
+keep = c('Code', names(env_data)[6:length(env_data)])
+
+#use this for EU and NA locations together
+locations = c('DE', 'FI', 'IC', 'IR', 
+              'ISH','IVO', 'KEI', 'NO1', 
+              'NO2', 'NO3', 'OH', 'SW', 
+              'UK1', 'UK2', 'BAI', 'BIM', 'CHA', 'COH', 
+              'FBM','MSB', 'NIP', 'PPG', 
+              'TE', 'TNR', 'US1', 'US2', 
+              'WIT')
+
+#use this for EU locations
+locations = c('DE', 'FI', 'IC', 'IR', 
+              'ISH','IVO', 'KEI', 'NO1', 
+              'NO2', 'NO3', 'OH', 'SW', 
+              'UK1', 'UK2')
+
+#use this for NA locations
+locations = c('BAI', 'BIM', 'CHA', 'COH', 
+              'FBM','MSB', 'NIP', 'PPG', 
+              'TE', 'TNR', 'US1', 'US2', 
+              'WIT')
+#gets lists of locations
+env_data_pos = as.matrix(env_data[c( 'Longitude', 'Latitude')])
+mem_locations = env_data$FamID
+
+#distance based MEMs - get the mems for later use in RDA
+library(adespatial);library(sp);library(spdep)
+nb <- chooseCN(coordinates(env_data_pos), type = 4, plot.nb = FALSE)
+distnb <- nbdists(nb, env_data_pos)
+fdist <- lapply(distnb, function(x) 1 / x^1)
+lw <- nb2listw(nb, style = 'W', glist = fdist, zero.policy = TRUE)
+distance_matrix = mem(lw)
+
+
+#######################
+# Load Genetic Data
+#######################
+
+
+#get raw file in plink from ped/map files --recode A flag
+genotype_data = read.delim('Lump_recluster_downsampled_MAF.raw',
+                           sep = "",
+                           stringsAsFactors = F) %>%
+  as_tibble() %>%
+  dplyr::rename(Population = FID)
+
+
+#######################
+# Load Environment Data
+#######################
+
+
+## read in the bioclimatic variables after adding in lat long info and making it 
+#the same order as .raw file - already uncorrelated
+env_uncorr = read_csv('Lumpfish_EnviroData_EUandNA_Feb2023.csv')
+
+
+#######################
+# Pair genetic and Environment data for RDA input
+#######################
+
+
+#make sure the individual ids line up - If FALSE somethings wrong
+genotype_data$IID == env_uncorr$IID
+
+#pull out just the snp data
+SNPS = genotype_data %>%
+  dplyr::select(matches("X")) %>%
+  as_tibble(genotype_data)
+
+#impute the NA's to the most common genotype at the locus
+SNPS = apply(SNPS ,
+             2,
+             function(x) replace(x, is.na(x),
+                                 as.numeric(names(which.max(table(x))))))
+SNPS = SNPS %>%
+  as_tibble()
+
+SNPS <- SNPS[-1] #the column SEX got through so need to remove it
+
+#put enviro and snp data together
+env_snps = cbind(env_uncorr, SNPS)
+
+#check the output dataframe
+dim(env_snps) #shape should be #individuals x (n_markers + n_env + location) 
+sum(is.na(env_snps)) == 0 #should be no NAs
+
+#get the meme info sorted and ready to merge with the main dataframe
+dm_per_location = as_tibble(distance_matrix)
+mem_cols = names(dm_per_location)
+dm_per_location$Population = mem_locations
+
+#merge meme data with the major dataset
+env_snps_mem = left_join(env_snps, dm_per_location, "Population")
+
+
+# get the names of the genetic columns
+gen_cols = names(SNPS[,1:62634])
+
+# get the names of the enviro columns
+env_cols = names(env_uncorr[,3:23])
+
+
+#######################
+# run the RDA
+#######################
+
+
+#try 1 - USING ONLY MEM1 and MEM2
+rda_out = rda(env_snps_mem[gen_cols] ~ BO_calcite+
+                BO_chlomax+
+                BO2_tempmean_ss+
+                BO_ph+
+                BO_salinity+
+                BO_sstrange+
+                BO2_temprange_ss+
+                BO_bathymin+
+                BO_bathymean+
+                BO2_curvelmax_bdmax+
+                BO2_dissoxmax_bdmax+
+                BO2_dissoxrange_bdmax+
+                BO2_tempmax_bdmean+
+                BO2_lightbotmean_bdmin+
+                BO2_silicaterange_bdmax+
+                BO2_icecoverltmax_ss+
+                BO2_chlomax_ss+
+                BO2_curvelmax_ss+
+                BO2_curvelmean_ss+
+                BO2_curvelmin_ss+
+                BO2_phosphaterange_ss,
+              data = env_snps_mem[c(mem_cols,env_cols)], 
+              scale=T) 
+
+#get the vif scores for each variable - ideally want it to be under 10
+vif.cca(rda_out)
+
+##RDA for EU + NA - mem correction
+rda_out = rda(env_snps_mem[gen_cols] ~ BO_chlomax+
+                BO_ph+
+                BO_salinity+
+                BO_sstrange+
+                BO2_tempmax_bdmean+
+                BO2_lightbotmean_bdmin+
+                BO2_icecoverltmax_ss+
+                BO2_curvelmax_ss+
+                BO2_phosphaterange_ss+
+                Condition(MEM1 + MEM2),
+              data = env_snps_mem[c(mem_cols,env_cols)], 
+              scale=T) 
+
+##RDA for EU + NA - no mem correction
+rda_out = rda(SNPS ~ BO_chlomax+
+                BO_ph+
+                BO_salinity+
+                BO_sstrange+
+                BO2_tempmax_bdmean+
+                BO2_lightbotmean_bdmin+
+                BO2_icecoverltmax_ss+
+                BO2_curvelmax_ss+
+                BO2_phosphaterange_ss,
+              data = env_snps, 
+              scale=T) 
+
+#further reduce variables based on vif scores -EU
+rda_out = rda(env_snps_mem[gen_cols] ~ BO_ph+
+                BO_salinity+
+                BO_sstrange+
+                BO2_dissoxmax_bdmax+
+                BO2_tempmax_bdmean+
+                BO2_silicaterange_bdmax+
+                BO2_curvelmax_ss+
+                Condition(MEM1 + MEM2),
+              data = env_snps_mem[c(mem_cols,env_cols)], 
+              scale=T) 
+
+#further reduce variables based on vif scores -NA
+rda_out = rda(env_snps_mem[gen_cols] ~ BO_calcite+
+                BO_chlomax+
+                BO_salinity+
+                BO_sstrange+
+                BO2_dissoxmax_bdmax+
+                BO2_tempmax_bdmean+
+                BO2_lightbotmean_bdmin+
+                BO2_silicaterange_bdmax+
+                BO2_icecoverltmax_ss+
+                BO2_curvelmean_ss+
+                Condition(MEM1 + MEM2),
+              data = env_snps_mem[c(mem_cols,env_cols)], 
+              scale=T) #that is an even more terrible function call
+
+
+
+#check on the vif scores again
+vif.cca(rda_out)
+
+
+#######################
+# Examine the RDA 
+#######################
+
+
+#how much of the variation is explained  
+RsquareAdj(rda_out)
+
+#get summary info
+summary(eigenvals(rda_out, model = "constrained"))
+screeplot(rda_out) #most of the variance explained by the first 3 axes
+
+#make a plot
+bg <- colorRampPalette(c("dodgerblue", "red", "purple", "cyan", 
+                         "goldenrod", "orchid", "forestgreen"))(n=11)
+clust <- as.factor(env_uncorr$Range)
+plot(rda_out, type="n", scaling=3)
+points(rda_out, display="sites", pch=21, cex=1.3, col="gray32", scaling=3, bg=bg[clust]) 
+text(rda_out, scaling=3, display="bp", col="#0868ac", cex=0.9)
+legend("right", legend=levels(clust), bty="n", col="gray32", pch=21, cex=0.75, pt.bg=bg)
+
+
+################################################################################
+
+
+##########################
+# GET THE OUTLIERS!! EU
+##########################
+
+
+#check if the variation falls along one major axis
+###This is computationally intense!
+axis.sig = anova.cca(rda_out, by = 'axis', parallel = getOption('mc.cores'))
+
+#species scores for the first six constrained axes
+load.rda <- scores(rda_out, choices=c(1:6), display="species")
+
+#Identifying as many potential candidate loci as possible 
+outliers <- function(x,z){
+  lims <- mean(x) + c(-1, 1) * z * sd(x)     # find loadings +/-z sd from mean loading     
+  x[x < lims[1] | x > lims[2]]               # locus names in these tails
+}
+
+#Apply it to each significant constrained axis
+cand1 <- outliers(load.rda[,1],3) 
+cand2 <- outliers(load.rda[,2],3) 
+cand3 <- outliers(load.rda[,3],3) 
+cand4 <- outliers(load.rda[,4],3) 
+
+#Calculate the total of candidates loci
+ncand <- length(cand1) + length(cand2) + length(cand3) + length(cand4)
+ncand
+
+#Organize our results by making one data frame with the axis, SNP name, loading, & correlation with each predictor
+cand1 <- cbind.data.frame(rep(1,times=length(cand1)), names(cand1), unname(cand1))
+cand2 <- cbind.data.frame(rep(2,times=length(cand2)), names(cand2), unname(cand2))
+cand3 <- cbind.data.frame(rep(3,times=length(cand3)), names(cand3), unname(cand3))
+cand4 <- cbind.data.frame(rep(4,times=length(cand4)), names(cand4), unname(cand4))
+
+# Give colnames
+colnames(cand1) <- colnames(cand2) <- colnames(cand3) <- colnames(cand4) <- c("axis","snp","loading")
+
+# Paste all the candidates
+cand <- rbind(cand1, cand2, cand3, cand4)
+cand$snp <- as.character(cand$snp)
+
+#make a new dataframe with only the variables of interest
+env_data_reduced <- subset(env_uncorr, select = c("BO_chlomax", "BO_ph", "BO_salinity", "BO_sstrange", "BO2_tempmax_bdmean", 
+                                                  "BO2_lightbotmean_bdmin", "BO2_icecoverltmax_ss", "BO2_curvelmax_ss", 
+                                                  "BO2_phosphaterange_ss"))
+
+#Add in the correlations of each candidate SNP with the three environmental predictors:
+foo <- matrix(nrow=(ncand), ncol=9)  # 6 columns for 6 predictors
+colnames(foo) <- c("BO_chlomax", "BO_ph", "BO_salinity", "BO_sstrange", "BO2_tempmax_bdmean", 
+                   "BO2_lightbotmean_bdmin", "BO2_icecoverltmax_ss", "BO2_curvelmax_ss", 
+                   "BO2_phosphaterange_ss")
+pred <- env_data_reduced[,1:9]
+
+for (i in 1:length(cand$snp)) {
+  nam <- cand[i,2]
+  snp.gen <- SNPS[,nam]
+  foo[i,] <- apply(pred,2,function(x) cor(x,snp.gen))
+}
+
+### Now we have a data frame of 282 candidate SNPs and their correlation with our 3 environmental predictors.
+cand <- cbind.data.frame(cand,foo)  
+head(cand)
+
+### Investigate the duplicated selection
+length(cand$snp[duplicated(cand$snp)]) # 0 duplicated loci
+foo <- cbind(cand$axis, duplicated(cand$snp)) 
+cand <- cand[!duplicated(cand$snp),] # remove duplicate detection
+
+
+### See which of the predictors each candidate SNP is most strongly correlated with
+for (i in 1:length(cand$snp)) {
+  bar <- cand[i,]
+  cand[i,13] <- names(which.max(abs(bar[4:12]))) # gives the variable
+  cand[i,14] <- max(abs(bar[4:9]))              # gives the correlation
+}
+
+colnames(cand)[13] <- "predictor"
+colnames(cand)[14] <- "correlation"
+
+table(cand$predictor) 
+
+write.csv(cand, "SNP_NAEUcorrectedMEM_RDA_outlierloci_4axes.csv")
+
+
+
+################################################################################
+
+
+#RDA outliers mapped back
+out_snps = read_csv('SNP_NAEU_RDA_outlierloci_4axes.csv')
+map = read_tsv('Lump_recluster_downsampled_MAF.map', 
+               col_names = FALSE)
+
+## This gets rid the format the snps are in after the RDA
+## We need to line up the SNP names to the map file
+## The first set of two operations arefor the outlier snps
+out_snps$snp = gsub("AX.",
+                    "AX-",
+                    out_snps$snp)
+
+out_snps$snp = gsub("_.*",
+                    "",
+                    out_snps$snp)
+
+
+## This gets the map file data for the outlier snps
+out_map = map[map$X2 %in% out_snps$snp,]
+## This merges the map file with the outlier snps
+out_snps = merge(out_map,
+                 out_snps,
+                 by.x = 'X2',
+                 by.y = 'snp') %>%
+  as_tibble()
+
+## Write out the rda scores for all of the map data
+write_csv(out_snps,'Lump_RDA_NAEUOutliersnp_scores.csv')
+
+
+################################################################################
+
+
+##########################
+# GET THE OUTLIERS!! North America
+##########################
+
+
+#check if the variation falls along one major axis
+###This is computationally intense!
+axis.sig = anova.cca(rda_out, by = 'axis', parallel = getOption('mc.cores'))
+
+#species scores for the first six constrained axes
+load.rda <- scores(rda_out, choices=c(1:6), display="species")
+
+#Identifying as many potential candidate loci as possible 
+outliers <- function(x,z){
+  lims <- mean(x) + c(-1, 1) * z * sd(x)     # find loadings +/-z sd from mean loading     
+  x[x < lims[1] | x > lims[2]]               # locus names in these tails
+}
+
+#Apply it to each significant constrained axis
+cand1 <- outliers(load.rda[,1],3) 
+cand2 <- outliers(load.rda[,2],3) 
+cand3 <- outliers(load.rda[,3],3) 
+
+#Calculate the total of candidates loci
+ncand <- length(cand1) + length(cand2) + length(cand3)
+ncand
+
+#Organize our results by making one data frame with the axis, SNP name, loading, & correlation with each predictor
+cand1 <- cbind.data.frame(rep(1,times=length(cand1)), names(cand1), unname(cand1))
+cand2 <- cbind.data.frame(rep(2,times=length(cand2)), names(cand2), unname(cand2))
+cand3 <- cbind.data.frame(rep(3,times=length(cand3)), names(cand3), unname(cand3))
+
+# Give colnames
+colnames(cand1) <- colnames(cand2) <- colnames(cand3) <- c("axis","snp","loading")
+
+# Paste all the candidates
+cand <- rbind(cand1, cand2, cand3)
+cand$snp <- as.character(cand$snp)
+
+#make a new dataframe with only the variables of interest
+env_data_reduced <- subset(env_uncorr, select = c("BO_calcite","BO_chlomax",'BO_salinity', "BO_sstrange","BO2_dissoxmax_bdmax",
+                                                  "BO2_tempmax_bdmean","BO2_lightbotmean_bdmin", 
+                                                  "BO2_silicaterange_bdmax", "BO2_icecoverltmax_ss", "BO2_curvelmean_ss"))
+
+#Add in the correlations of each candidate SNP with the three environmental predictors:
+foo <- matrix(nrow=(ncand), ncol=10)  # 10 columns for 10 predictors
+colnames(foo) <- c("BO_calcite","BO_chlomax",'BO_salinity', "BO_sstrange","BO2_dissoxmax_bdmax",
+                   "BO2_tempmax_bdmean","BO2_lightbotmean_bdmin", "BO2_silicaterange_bdmax", 
+                   "BO2_icecoverltmax_ss", "BO2_curvelmean_ss")
+pred <- env_data_reduced[,1:10]
+
+for (i in 1:length(cand$snp)) {
+  nam <- cand[i,2]
+  snp.gen <- SNPS[,nam]
+  foo[i,] <- apply(pred,2,function(x) cor(x,snp.gen))
+}
+
+### Now we have a data frame of 282 candidate SNPs and their correlation with our 3 environmental predictors.
+cand <- cbind.data.frame(cand,foo)  
+head(cand)
+
+### Investigate the duplicated selection
+length(cand$snp[duplicated(cand$snp)]) # 0 duplicated loci
+foo <- cbind(cand$axis, duplicated(cand$snp)) 
+cand <- cand[!duplicated(cand$snp),] # remove duplicate detection
+
+
+### See which of the predictors each candidate SNP is most strongly correlated with
+for (i in 1:length(cand$snp)) {
+  bar <- cand[i,]
+  cand[i,14] <- names(which.max(abs(bar[4:13]))) # gives the variable
+  cand[i,15] <- max(abs(bar[4:13]))              # gives the correlation
+}
+
+colnames(cand)[14] <- "predictor"
+colnames(cand)[15] <- "correlation"
+
+table(cand$predictor) 
+
+write.csv(cand, "SNP_NA_RDA_outlierloci_4axes.csv")
+
+
+
+################################################################################
+
+
+#RDA outliers mapped back
+out_snps = read_csv('SNP_NA_RDA_outlierloci_4axes.csv')
+map = read_tsv('Lump_recluster_downsampled_MAF_NAonly.map', 
+               col_names = FALSE)
+
+## This gets rid the format the snps are in after the RDA
+## We need to line up the SNP names to the map file
+## The first set of two operations arefor the outlier snps
+out_snps$snp = gsub("AX.",
+                    "AX-",
+                    out_snps$snp)
+
+out_snps$snp = gsub("_.*",
+                    "",
+                    out_snps$snp)
+
+
+## This gets the map file data for the outlier snps
+out_map = map[map$X2 %in% out_snps$snp,]
+## This merges the map file with the outlier snps
+out_snps = merge(out_map,
+                 out_snps,
+                 by.x = 'X2',
+                 by.y = 'snp') %>%
+  as_tibble()
+
+## Write out the rda scores for all of the map data
+write_csv(out_snps,'Lump_RDA_NAOutliersnp_scores_andvariable.csv')
+
+
+
+################################################################################
+
+
+
+##############################
+##Manhattan plot of loadings
+##############################
+
+
+load_rda = scores(rda_out, choices=c(1:4), display="species")  # Species scores for the first three constrained axes
+hist(load_rda[,1], main="Loadings on RDA1") 
+hist(load_rda[,2], main="Loadings on RDA2")
+hist(load_rda[,3], main="Loadings on RDA2")
+hist(load_rda[,4], main="Loadings on RDA2")
+
+#extract the RDA1 loadings and do a manhattan plot
+sum_dat = summary(rda_out) 
+loadings = as_tibble(data.frame(loadings = sum_dat$species))
+loadings$raw_marker = rownames(sum_dat$species)
+loadings$SNP = unlist(lapply(loadings$raw_marker, function(x){strsplit(x, "_")[[1]][[1]]}))
+
+#then get the map file loaded in to subset the positions
+map_df = read_tsv('Lump_recluster_downsampled_MAF_EUonly.map', 
+                  col_names = c("CHR", "SNP" , "X", "POS"))
+
+#combine
+loadings_man_df = cbind(loadings$loadings.RDA1, map_df)
+write.csv(loadings_man_df, "EU_RDA1loadings.csv")
+
+loadings_man_df <- read.csv("EU_RDA1loadings.csv")
+
+ggman(loadings_man_df, snp = "SNP", bp = "POS", chrom = "CHR", pvalue = "loadings.RDA1")+
+  labs(title =  "RDA1 loadings")+
+  xlab("Chromosome") +
+  ylab("RDA1 loading value")+
+  theme_classic()
+
+library(data.table)
+library(qqman)
+library(ggplot2)
+
+manhattan(x=loadings_man_df,
+          chr="CHR", bp ="POS", p = "loadings.RDA1", snp = "SNP",
+          genomewideline = F,
+          suggestiveline =  F,  #col = c("dodgerblue4", "gray48"),
+          ylim=c(0,7),col=c("gray50", "dodgerblue4"),
+          highlight=loadings_man_df$SNP[order(loadings_man_df$PC1, decreasing=F)][1:100])
+
+
+################################################################################
+
+
+
