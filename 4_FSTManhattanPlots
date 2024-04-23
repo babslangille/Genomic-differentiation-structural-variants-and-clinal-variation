@@ -1,0 +1,37 @@
+#################################################################################
+######################     fst manhattan plot    ################################
+
+
+#Libraries
+library(data.table)
+library(qqman)
+library(windowscanr)
+library(cowplot)
+library(ggplot2)
+
+library(devtools)
+install_github('tavareshugo/windowscanr')
+
+#plink code - this one line is done in plink NOT R
+plink --file Lump_recluster_downsampled_MAF_fst --fst --within NW_NE_within.txt --out FST_across_genome_lumpy --chr-set 30 no-xy
+
+#Read in FST values
+fst_results=fread("FST_across_genome_lumpy.fst", header=T)
+
+#Check top 100 snps
+all_data=fst_results[order(fst_results$FST, decreasing = T),]
+all_data[1:100,]
+
+#A few SNPs have no chromosome postion
+all_data[is.na(all_data$CHR)]
+
+#Check max FST value
+max(all_data$FST)
+
+#Save manhattan as 18 x 6 inch pdf
+#plot for Figure 1
+manhattan(x = all_data[!is.na(all_data$CHR),], chr = "CHR", bp = "POS", snp = "SNP",
+          p = "FST", logp = F, cex=1, col=c("gray50", "dodgerblue4"), ylab="FST", 
+          highlight=as.character(all_data$SNP[order(all_data$FST, decreasing=T)])[1:100],
+          ylim=c(0.4,0.92))
+
