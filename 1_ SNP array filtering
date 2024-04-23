@@ -1,0 +1,14 @@
+################################################################################
+#####################       SNP array filtering          ######################
+
+
+# Plink code to transform .ped/.map to .bim/.bed/.fam and
+#Filter based on call rate (--geno), MAF (--maf), and individuals with high 
+#genotyping (--mind) and take out asembly errors/things that are hard to assemble
+plink --file Lump_recluster --make-bed --geno 0.05 --maf 0.01 --mind 0.05 --not-chr 0, scaffold_67_arrow_ctg1, scaffold_114_arrow_ctg1, scaffold_119_arrow_ctg1 --out Lump_filter_MAF --allow-extra-chr
+
+# Find the relatedness and get results for pi-hat threshold of 0.2, which is a second degree relative
+plink --bfile Lump_filter_MAF --genome --min 0.2 --out relate_WFout --allow-extra-chr
+
+# Remove all the individuals that are too related
+plink --bfile Lump_filter_MAF --remove Lumpy_toremove.txt --make-bed --out Lump_filter_MAF_norelate --allow-extra-chr
